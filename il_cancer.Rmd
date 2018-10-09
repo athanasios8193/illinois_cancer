@@ -7,10 +7,7 @@ output:
     toc: true
     toc_float: true
     toc_collapse: false
-  pdf_document:
-          toc: true
-          number_sections: true
-date: "October 6, 2018"
+date: "October 8, 2018"
 ---
 
 ```{r setup, include=FALSE}
@@ -21,19 +18,37 @@ knitr::opts_chunk$set(echo = FALSE)
 
 In late August 2018, the Chicago Tribune published an article regarding an EPA report which found that Sterigenics facilities in Willowbrook, IL, have been releasing ethylene oxide into the air. Ethylene oxide (EtO) is used at the Sterigenics facilities to sterilize medical equipment. It is a known carcinogen and has been linked to many different kinds of health issues. EtO is even used in creating thermobaric weapons because it is so flammable and explosive.
 
-The two Sterigenics facilities in Willowbrook, IL, is located in a small industrial/office area which is surrounded on all sides by residences. Within 1 mile of the Sterigenics facilities, aside from the many residences, there is Gower Middle School (less than a half mile away), Hinsdale South High School (3/4 of a mile away), many parks, and popular shopping places like Target and the Willowbrook Town Center. Every day EtO is breathed in by residents, the many employees who work in the businesses immediately surrounding the facilities, the teachers and students at the nearby schools. Long term, daily exposure over the years to this harmful compound can be harmful to health.
+The two Sterigenics facilities in Willowbrook, IL, are located in a small industrial/office area which is surrounded on all sides by residences. Within 1 mile of the Sterigenics facilities, aside from the many residences, there is Gower Middle School (less than a half mile away), Hinsdale South High School and Gower West Elementary School (3/4 of a mile away), many parks, and popular shopping places like Target and the Willowbrook Town Center. Every day EtO is breathed in by residents, the many employees who work in the businesses immediately surrounding the facilities, the teachers and students at the nearby schools, and more. Long term, daily exposure over the years to this harmful compound can be harmful to health.
 
-In this analysis, I will attempt to determine whether or not the residents of the areas within a few miles of the facilities face a higher rate of cancer diagnoses than the rest of the state. It is important to note here that this analysis concerns ONLY cancer diagnoses and does not inlcude data on the many other problems linked to long term EtO exposure. The cancer data comes from the Illinois Department of Public Health and contains data of cancer diagnoses for the state from 1986-2015. For most of this analysis I use only the data from 2001-2015 because it is my understanding that the ZIP code boundaries were re-drawn in 2000 and I would not want to misrepresent my findings by using incorrect data. The ZIP codes I am using are 60527, 60439, 60561, 60521, 60558, 60514, 60559, 60525 which represent Willowbrook-Burr Ridge, Lemont-Woodridge-WilloW Springs, Darien, Hinsdale, Western Springs, Clarendon Hills, Westmont, and La Grange-Hodgkins-Countryside, respectively.
-
-# Analysis
-
-I will note here that all of the code I used for this analysis is available both in the appendix of this report and in a Github repository. I performed this analysis in both R and Python. All relevant files and outputs will be in the Github repository. I want to be as transparent as possible about my methods, so for this reason I am providing all of this information. Follow this link to my repository: https://github.com/athanasios8193/illinois_cancer.
+In this analysis, I will attempt to determine whether or not the residents of the areas within a few miles of the facilities face a higher rate of cancer diagnoses than the rest of the state. It is important to note here that this analysis concerns ONLY cancer diagnoses and does not inlcude data on the many other problems linked to long term EtO exposure. The data also include people who lived in the respective ZIP codes at the time of diagnosis, so there may be people who work in the affected area but live farther away who may not be included in the counts. The cancer data comes from the Illinois Department of Public Health and contains data of cancer diagnoses for the state from 1986-2015. For most of this analysis I use only the data from 2001-2015 because it is my understanding that the ZIP code boundaries were re-drawn in 2000 and I would not want to misrepresent my findings by using incorrect data. The following table shows the ZIP Codes and towns/villages being considered.
 
 ```{r loading-libraries, message = FALSE}
 library(dplyr)
 library(ggplot2)
+library(plotly)
 library(knitr)
+
+library(leaflet)
+library(RColorBrewer)
+
+library(tigris)
+library(rgeos)
+library(sp)
 ```
+
+```{r introducing-zip-codes}
+zipcodes <- c(60527, 60439, 60561, 60521, 60558, 60514, 60559, 60525, 60480, 60515, 60516, 60517)
+towns <- c('Willowbrook/Burr Ridge', 'Lemont/Woodridge/Willow Springs',
+           'Darien', 'Hinsdale', 'Western Springs', 'Clarendon Hills', 'Westmont',
+           'La Grange/Hodgkins/Countryside', 'Willow Springs', 'Downers Grove',
+           'Downers Grove/Woodridge', 'Woodridge/Bolingbrook')
+ziptable <- cbind(ZIP_Codes=zipcodes, Towns=towns)
+kable(ziptable, align='c')
+```
+
+# Analysis
+
+I will note here that all of the code I used for this analysis is available both in the appendix of this report and in a Github repository. I performed this analysis in both R and Python. All relevant files and outputs will be in the Github repository. I want to be as transparent as possible about my methods, so for this reason I am providing all of this information. Follow this link to my repository: https://github.com/athanasios8193/illinois_cancer.
 
 ## Acquiring the Data
 
@@ -62,6 +77,8 @@ data$years <- substr(data[,1], 2,2)
 data$zip <- substr(data[,1], 3,7)
 data$age <- substr(data[,1], 11,11)
 data$type <- substr(data[,1],9,10)
+data$lat <- substr(data[,1], 12,24)
+data$long <- data$X2
 
 data <- data[,-c(1,2)]
 
@@ -70,7 +87,9 @@ data$years <-as.numeric(data$years)
 data$zip <- as.numeric(data$zip)
 data$age <- as.numeric(data$age)
 data$type <- as.numeric(data$type)
-kable(head(data), align='c')
+data$lat <- as.numeric(data$lat)
+data$long <- as.numeric(data$long)
+kable(head(data[,-c(6,7)]), align='c')
 ```
 
 ```{r decoding-data}
@@ -96,7 +115,7 @@ rm(diagnosisyear)
 rm(agegroup)
 rm(cancertype)
 
-kable(head(data), align='c')
+kable(head(data[,-c(6,7)]), align='c')
 ```
 
 This output is much more user-friendly than any of the others. I have included this table (18401445 rows, 5 columns) as a .csv called 'il_cancer.csv.' It is located in my Github repository in the Data folder. Feel free to explore it on your own and draw your own inferences.
@@ -105,20 +124,39 @@ This output is much more user-friendly than any of the others. I have included t
 
 ### State of Illinois Cancer Diagnoses
 
-Now that the data is in a clean, tidy format, it is time to explore the data. I'll start off by showing the trends for the entire state of Illinois since 1986. This first graph shows the number of cancer cases in the state as reported by the IDPH since 1986. There is a clear trend showing that for each 5-year period the number of cases goes up, but the rate of increase seems to decrease as time goes on.
+Now that the data is in a clean, tidy format, it is time to explore the data. I'll start off by showing the trends for the entire state of Illinois since 1986. This first graph shows the number of cancer cases per 100,000 people per five year period in the state as reported by the IDPH since 1986. It is clear that the overall trend is up, despite there being some decline from '96-'00 to '01-'05, for example.
+
+**NOTE:** You can hover over the bars of each plot to see the underlying numbers.
 
 ```{r cancer-illinois}
-ggplot(data, aes(x=years)) + geom_bar() + xlab('Years') + ylab('Number of Cases') +
-        ggtitle('Number of Cancer Cases in Illinois Since 1986')
+plot1 <- data %>% group_by(years) %>% count()
+plot1 <- data.frame(plot1)
+
+il80 <- 11426518
+il90 <- 11430602
+il00 <- 12419293
+il10 <- 12830632
+
+plot1[1,2] <- plot1[1,2]*100000/il80
+plot1[2:3,2] <- plot1[2:3,2]*100000/il90
+plot1[4:5,2] <- plot1[4:5,2]*100000/il00
+plot1[6,2] <- plot1[6,2]*100000/il10
+
+g <- ggplot(plot1, aes(x=years, y=n)) + geom_bar(stat='identity') + xlab('Years') + ylab('Number of Cases') +
+        ggtitle('Number of Cancer Cases per 100000 per Five Year Period <br> in Illinois Since 1986')
+ggplotly(g)
 ```
 
 Next, I show the same graph but this time I break up each 5-year period by age. Within each age group, the number of cases goes up during each 5-year period. There is a stark difference in volume of cancer diagnoses between people above and below the age of 44. The 45-64 year age group has the highest rate of increase of cancer diagnoses over the 5-year periods. The 65 and older group is far and away the largest in terms of overall diagnoses, but the number has been fairly flat over the last 15 years in this time frame.
 
+**NOTE:** On the graphs with a legend, you can turn groups on or off by clicking on the corresponding number in the legend.
+
 ```{r cancer-by-age}
-ggplot(data, aes(x=years, fill=age)) + geom_bar(position='dodge') +
+h <-ggplot(data, aes(x=years, fill=age)) + geom_bar(position='dodge') +
         xlab('Years') + ylab('Number of Cases') +
         ggtitle('Number of Cancer Cases in Illinois since 1986 \n by Age at Diagnosis') +
         scale_fill_discrete(name='Age')
+ggplotly(h)
 ```
 
 ### Cancer Diagnoses in the Areas Surrounding Sterigenics
@@ -127,27 +165,29 @@ As alluded to before, the rest of this analysis will only concern the years 2001
 
 ```{r creating-filters}
 since2000 <- c('2001-2005', '2006-2010', '2011-2015')
-zipcodes <- c(60527, 60439, 60561, 60521, 60558, 60514, 60559, 60525)
+zipcodes <- c(60527, 60439, 60561, 60521, 60558, 60514, 60559, 60525, 60480, 60515, 60516, 60517)
 datasub <- subset(data, years %in% since2000)
 datalocal <- subset(data, zip %in% zipcodes)
 datalocalsub <- subset(datasub, zip %in% zipcodes)
 ```
 
-From 2001-2005 to 2006-2010 the total number of cancer diagnoses went up around 500, but there was a slight decline between '06-'10 to '11-'15. Overall there were around 16,000 diagnoses in the area over that 15 year period. 
+From 2001-2005 to 2006-2010 the total number of cancer diagnoses went up around 600, with an increase of 70 cases from '06-'10 to '11-'15. 
 
 ```{r plotting-subset-local-data}
-ggplot(datalocalsub, aes(x=years)) + geom_bar() +
+i <- ggplot(datalocalsub, aes(x=years)) + geom_bar() +
         ggtitle('Number of Cancer Cases in Sterigenics Area Since 2001') +
         xlab('Years') + ylab('Number of Cases')
+ggplotly(i)
 ```
 
-When breaking up the previous graph by age, it becomes apparent that the only age group to see an increase over all three timeframes is the 45-64 group. In the other three age groups, you see an increase in total number of diagnoses form '01-'05 to '06-'10 but then a decline from '06-'10 to '11-'15.
+When breaking up the previous graph by age, it becomes apparent that the two oldest age groups see an increase in cancer diagnoses. In the other two age groups, you see an increase in total number of diagnoses form '01-'05 to '06-'10 but then a decline from '06-'10 to '11-'15.
 
 ```{r plotting-subset-local-data-by-age}
-ggplot(datalocalsub, aes(x=years, fill=age)) + geom_bar(position='dodge') +
+j <- ggplot(datalocalsub, aes(x=years, fill=age)) + geom_bar(position='dodge') +
         ggtitle('Number of Cancer Cases in Sterigenics Area Since 2001 \n by Age at Diagnosis') +
         xlab('Years') + ylab('Number of Cases') +
         scale_fill_discrete(name='Age')
+ggplotly(j)
 ```
 
 Further exploration into the breakdown of cases between men and women or possibly to determine what kinds of cancer were most prevalent could be done, but they are beyond the scope of this high level analysis. Feel free to explore the provided data on your own.
@@ -180,9 +220,9 @@ colnames(ilpop) <- c('zip', 'population')
 ```
 
 ```{r illinois-cancer}
-ilcancer <- datasub %>% count(zip)
+ilcancer <- datasub %>% group_by(zip, lat, long) %>% count()
 ilcancer <- as.data.frame(ilcancer)
-colnames(ilcancer) <- c('zip', 'freq')
+colnames(ilcancer) <- c('zip', 'lat', 'long', 'freq')
 ```
 
 Next, I aggregated the number of diagnoses by zip code and combined those results with the U.S. Census Data by ZIP code. I did this for every ZIP code included in the IDPH data set and calculated diagnoses per year, 'One in Every X' per year, and 'X per 100000 People per Year,' as well as the ratio of the per 100000 people per year for each ZIP code compared to the state as a whole. The first few results are shown below.
@@ -193,17 +233,17 @@ cancer$per_year <- cancer$freq/15
 cancer$one_in_every_X_per_year <- cancer$population/cancer$per_year
 cancer$per_100000_per_year <- cancer$per_year*100000/cancer$population
 cancer$zip_vs_state <- cancer$per_100000_per_year/per_100000_il_per_year
-kable(head(cancer), align='c')
+kable(head(cancer[,-c(3,4)]), align='c')
 ```
 
 Once I had this entire output, the results of which are saved to 'il_cancer_statistics.csv' (located in the Github repository's Data folder), I extracted the ZIP codes of interest. These results are shown in the table below.
 
 ```{r subsetting-local}
 cancer_local <- subset(cancer, zip %in% zipcodes)
-kable(arrange(cancer_local, desc(zip_vs_state)), align='c')
+kable(arrange(cancer_local[,-c(3,4)], desc(zip_vs_state)), align='c')
 ```
 
-This table shows that 7/8 of the ZIP codes of interest are above the state of Illinois baseline level. La Grange, Darien, and Willowbrook are highest with 39%, 29%, and 26% more cancer diagnoses per 100000 people. Only Westmont has a lower rate than the rest of the surrounding ZIP codes.
+This table shows that 10/12 of the ZIP codes of interest are above the state of Illinois baseline level. La Grange, Darien, Downers Grove, and Willowbrook are highest with 39%, 29%, 27%, and 26% more cancer diagnoses per 100000 people. Only Westmont has a lower rate than the rest of the surrounding ZIP codes.
 
 The following table shows the proportion of ZIP codes where the Cases per 100000 People was greater than the state of Illinois overall value. I then increment the percentage higher than Illinois by 5% until I reached 20% greater. The numbers in the affected area start to get smaller due to the small sample size. 
 
@@ -228,39 +268,75 @@ cancer_greater_both <- data.frame('Entire_State'=cancer_greater,
 kable(cancer_greater_both, align='c')
 ```
 
+### Map of Sterigenics Affected Areas
+
+It is perhaps easiest to visualize the data by plotting on a map of the area. The map was created using Leaflet and ZIP Code boundary data provided by the U.S. Census Bureau.
+
+The circles on the map are centered on the Sterigenics facilities. Each circle represents a half mile radius away from the facilities. You can zoom in and move around on the map as you desire. Each blue marker represents the geometric center of each ZIP Code of interest. Hovering over a blue marker will tell you which ZIP code it represents, and clicking on a marker will give you the per 100,000 people per year number and its comparison to the state of Illinois as a whole.
+
+The shaded in areas with blue outlines are the ZIP code regions as provided by the U.S. Census Bureau. The darker the ZIP Code area is shaded in, the higher the cancer incidence per 100,000 people per year.
+
+```{r loading-shapes, cache=TRUE, message=FALSE, results='hide'}
+datashp <- zctas(cb = TRUE, starts_with = zipcodes)
+```
+
+```{r leaflet-map}
+data_map <- merge(datashp, cancer_local, by.x = 'GEOID10', by.y ='zip')
+
+n <- leaflet(data_map) %>% addTiles()
+n <- n %>% addMarkers(lat = ~lat, lng = ~long, 
+                      popup=~paste('Per 100,000 per Year: ', as.character(round(per_100000_per_year, 2)), '<br>',
+                                   'ZIP Code vs State: ', as.character(round(zip_vs_state, 2))),
+                      label=~paste('Geographic Center of ', GEOID10, ' ZIP Code'))
+n <- n %>% addPolygons(data=data_map, weight=3, opacity = 1, fillOpacity = 0.5,
+                       fillColor = ~colorQuantile('Greys', per_100000_per_year)(per_100000_per_year))
+n <- n %>% addCircles(lat = 41.747375, lng = -87.939954,
+                      label = 'Sterigenics Plant Radius',
+                      color=rev(brewer.pal(8, 'Spectral')),
+                      radius = rev(seq(8))*804.672, opacity = 1, fillOpacity = 0.15)
+
+n
+```
+
 ### Graphical Comparison of Local to State
 
 This graph is a visual representation of the per 100000 cancer rates in the Sterigenics area vs the state of Illinois as a whole (thick red line). It is clear from this that many of the local ZIP codes have a much higher rate than the state-wide baseline.
 
+
+
 ```{r visualize-cancer-local}
-ggplot(cancer_local, aes(x=as.factor(zip), y=per_100000_per_year)) + geom_bar(stat='identity') +
+k <- ggplot(cancer_local, aes(x=as.factor(zip), y=per_100000_per_year)) + 
+        geom_bar(stat='identity') +
         geom_hline(yintercept = per_100000_il_per_year, lwd=2, color='red') + 
         xlab('Zip Code') + ylab('Cancer Diagnoses per 100000 People per Year') +
         scale_y_continuous(breaks = sort(c(seq(0, 750, length.out=6),
                                            round(per_100000_il_per_year,2)))) +
         ggtitle('Cancer Diagnoses per 100000 People per Year Compared to \n State of Illinois Overall')
+ggplotly(k)
 ```
 
 
-### Local Cancer Trends Since 2001
+<!-- ### Local Cancer Trends Since 2001 -->
 
-This final graph graph shows the trend in each ZIP code in the affected area. Some ZIP codes (60527, 60558, 60561) match the state-wide trend while others defy it.
+<!-- This final graph graph shows the trend in each ZIP code in the affected area. Some ZIP codes (60527, 60558, 60561) match the state-wide trend while others defy it. -->
 
-```{r visualize-by-zip}
-local_counts <- datalocalsub %>% group_by(years) %>% count(zip)
-local_counts$zip <- as.character(local_counts$zip)
+<!-- ```{r visualize-by-zip} -->
+<!-- local_counts <- datalocalsub %>% group_by(years) %>% count(zip) -->
+<!-- local_counts$zip <- as.character(local_counts$zip) -->
 
-illinois_counts <- datasub %>% group_by(years) %>% count()
-illinois_counts$zip <- c('Illinois', 'Illinois', 'Illinois')
-illinois_counts <- illinois_counts[,c(1,3,2)]
+<!-- illinois_counts <- datasub %>% group_by(years) %>% count() -->
+<!-- illinois_counts$zip <- c('Illinois', 'Illinois', 'Illinois') -->
+<!-- illinois_counts <- illinois_counts[,c(1,3,2)] -->
 
-counts <- rbind(local_counts, illinois_counts)
+<!-- #counts <- rbind(local_counts, illinois_counts) -->
+<!-- counts <- local_counts -->
 
-ggplot(counts, aes(x=years, y=n)) + geom_bar(stat='identity') +
-        facet_wrap(.~zip, scales='free') + theme(axis.text.x=element_text(size=6)) +
-        ggtitle('Number of Cancer Cases in Sterigenics Area by Zip Code') +
-        xlab('Years') + ylab('Number of Cases')
-```
+<!-- l <- ggplot(counts, aes(x=years, y=n)) + geom_bar(stat='identity') + -->
+<!--         facet_wrap(.~zip, scales='free', nrow=4) + theme(axis.text.x=element_text(size=6)) + -->
+<!--         ggtitle('Number of Cancer Cases in Sterigenics Area by Zip Code') + -->
+<!--         xlab('Years') + ylab('Number of Cases') -->
+<!-- ggplotly(l) -->
+<!-- ``` -->
 
 # Conclusions
 
@@ -286,6 +362,9 @@ With all this considered, further research and testing by people more qualified 
 
 ###Loading and Cleaning Data
 ```{r loading-libraries, echo=TRUE, eval=FALSE}
+```
+
+```{r introducing-zip-codes, echo=TRUE, eval=FALSE}
 ```
 
 ```{r reading-in-data, echo=TRUE, eval=FALSE}
@@ -336,6 +415,12 @@ With all this considered, further research and testing by people more qualified 
 ```
 
 ```{r comparing-rates, echo=TRUE, eval=FALSE}
+```
+
+```{r loading-shapes, echo=TRUE, eval=FALSE}
+```
+
+```{r leaflet-map, echo=TRUE, eval=FALSE}
 ```
 
 ```{r visualize-cancer-local, echo=TRUE, eval=FALSE}

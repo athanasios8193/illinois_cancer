@@ -5,6 +5,12 @@
 ## THESE TWO PACKAGES ARE NECESSARY FOR SOME TABLE OPERATIONS AND GRAPHICS
 library(dplyr)
 library(ggplot2)
+library(leaflet)
+library(RColorBrewer)
+
+library(tigris)
+library(rgeos)
+library(sp)
 
 data <- read.delim("./Data/zpcd8615.dat", sep="\t", header=FALSE, stringsAsFactors = FALSE)
 
@@ -31,6 +37,8 @@ data$years <- substr(data[,1], 2,2)
 data$zip <- substr(data[,1], 3,7)
 data$age <- substr(data[,1], 11,11)
 data$type <- substr(data[,1],9,10)
+data$lat <- substr(data[,1], 12,24)
+data$long <- data$X2
 
 ## HERE I AM REMOVING THE FIRST TWO COLUMNS OF THE DATA FRAME WHICH WERE THE ORIGINAL COLUMNS IN THE DATASET.
 ## NOW THAT I HAVE EXTRACTED ALL THE RELEVANT INFORMATION FROM THEM, THEY ARE WORTHLESS AND ARE TAKING UP SPACE.
@@ -47,6 +55,8 @@ data$years <-as.numeric(data$years)
 data$zip <- as.numeric(data$zip)
 data$age <- as.numeric(data$age)
 data$type <- as.numeric(data$type)
+data$lat <- as.numeric(data$lat)
+data$long <- as.numeric(data$long)
 # data$stage_at_diagnosis <-as.numeric(data$stage_at_diagnosis)
 
 # Here I am re-numbering the stage information from the original values to 1-5 so that I can change the names within the
@@ -70,10 +80,10 @@ cancertype <- c('oral cavity and pharynx', 'colorectal', 'lung and bronchus',
 ## IN THIS STEP, EACH OF THE COLUMNS IN THE DATA FRAME ARE READING THE 'CODES' ENTERED ABOVE
 ## AND IF THE VALUE IN THE COLUMN MATCHES THE INDEX OF THE VALUE OF THE 'CODE', IT IS REPLACED BY THAT
 ## VALUE OF THE 'CODE.' THAT'S WHY IN THE STAGE AT DIAGNOSIS COLUMN I REASSIGNED NUMBERS FROM 1-5.
-data[,3] <- sexcode[data[,3]]
-data[,4] <- diagnosisyear[data[,4]]
-data[,6] <- agegroup[data[,6]]
-data[,7] <- cancertype[data[,7]]
+data[,1] <- sexcode[data[,1]]
+data[,2] <- diagnosisyear[data[,2]]
+data[,4] <- agegroup[data[,4]]
+data[,5] <- cancertype[data[,5]]
 # data[,8] <- stage[data[,8]]
 
 rm(sexcode)
@@ -90,7 +100,7 @@ rm(cancertype)
 since2000 <- c('2001-2005', '2006-2010', '2011-2015')
 
 ## THESE ZIPCODES ARE THE ONES CLOSEST TO THE STERIGENICS PLANTS IN WILLOWBROOK.
-zipcodes <- c(60527, 60439, 60561, 60521, 60558, 60514, 60559, 60525)
+zipcodes <- c(60527, 60439, 60561, 60521, 60558, 60514, 60559, 60525, 60480, 60515, 60516, 60517)
 
 ## HERE I AM SUBSETTING THE DATA FRAME TO INCLUDE ONLY THOSE CANCER CASES DIAGNOSED AFTER 2000.
 datasub <- subset(data, years %in% since2000)
@@ -125,9 +135,10 @@ ilpop <- ilpop[,-c(1,3)]
 colnames(ilpop) <- c('zip', 'population')
 
 ## HERE I AM COUNTING, BY ZIP CODE, THE NUMBER OF INSTANCES FROM THE DATA SUBSET BY AGE AND AFTER 2000
-ilcancer <- datasub %>% count(zip)
+# ilcancer <- datasub %>% count(zip)
+ilcancer <- datasub %>% group_by(zip, lat, long) %>% count()
 ilcancer <- as.data.frame(ilcancer)
-colnames(ilcancer) <- c('zip', 'freq')
+colnames(ilcancer) <- c('zip', 'lat', 'long', 'freq')
 
 ## BY DOING A LEFT JOIN, WE MERGE THE TWO DATA FRAMES ON THE 'zip' COLUMN, KEEPING ONLY THE VALUES FROM THE
 ## 'ilcancer' DATA FRAME THAT ALSO APPEAR IN THE 'ilpop' DATA FRAME.
@@ -138,10 +149,29 @@ cancer$per_100000_per_year <- cancer$per_year*100000/cancer$population
 cancer$zip_vs_state <- cancer$per_100000_per_year/per_100000_il_per_year
 
 ## SAVING A CSV OF THIS NEW DATA WITH THE STATISTICS FOR EACH ZIP CODE
-write.csv(cancer, './Data/il_cancer_statistics.csv', row.names = FALSE)
+#write.csv(cancer, './Data/il_cancer_statistics.csv', row.names = FALSE)
 
 cancer_local <- subset(cancer, zip %in% zipcodes)
 cancer_local <- arrange(cancer_local, desc(zip_vs_state))
+
+## CREATING A MAP OF THE LOCAL DATA
+
+## DOWNLOADING SHAPE FILE FROM THE TIGRIS PACKAGE TO GET OUTLINES OF THE ZIP CODES
+datashp <- zctas(cb = TRUE, starts_with = zipcodes)
+
+data_map <- merge(datashp, cancer_local, by.x = 'GEOID10', by.y ='zip')
+
+n <- leaflet(data_map) %>% addTiles()
+n <- n %>% addMarkers(lat = ~lat, lng = ~long, 
+                      popup=~paste('Per 100,000: ', as.character(round(per_100000_per_year, 2)), '<br>',
+                                   'ZIP Code vs State: ', as.character(round(zip_vs_state, 2))),
+                      label=~paste('Geographic Center of ', GEOID10, ' ZIP Code'))
+n <- n %>% addPolygons(data=data_map, weight=3, opacity = 1, fillOpacity = 0.5,
+                       fillColor = ~colorQuantile('Greys', per_100000_per_year)(per_100000_per_year))
+n <- n %>% addCircles(lat = 41.747375, lng = -87.939954,
+                      label = 'Sterigenics Plant Radius',
+                      color=rev(brewer.pal(8, 'Spectral')),
+                      radius = rev(seq(8))*804.672, opacity = 1, fillOpacity = 0.15)
 
 ## CREATING A DATA FRAME TO SHOW THE PROPORTION OF ZIP CODES GREATER THAN ILLINOIS AT CERTAIN THRESHOLDS 
 cancer_greater <- c(nrow(subset(cancer, zip_vs_state > 1))/nrow(cancer),
