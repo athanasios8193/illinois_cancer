@@ -32,3 +32,6 @@ PDF output of the R Markdown.
 
 ## il_cancer.Rmd
 R Markdown file containing the code which created the il_cancer.html and il_cancer.pdf files
+
+## READMEv25.pdf
+README file provided by the Illinois Department of Public Health to explain the raw data files for the cancer data.
