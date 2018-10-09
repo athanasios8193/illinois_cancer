@@ -26,6 +26,8 @@ HTML output of the iPython notebook file. Open it in a web browser
 HTML output of the R Markdown. This is the same output as the PDF.
 
 ## il_cancer.pdf
+**THE PDF IS NOT CONSISTENT WITH THE il_cancer.html FILE. I HAVE ADDED INTERACTIVE GRAPHS AND MAPS IN THE HTML SINCE CREATING THE PDF, AND THEY CAN'T RENDER INTO A PDF. I MAY ADD STATIC VERSIONS OF THE PLOTS LATER ON FOR A PDF VERISON TO BE POSSIBLE**
+
 PDF output of the R Markdown.
 
 ## il_cancer.Rmd
