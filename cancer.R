@@ -111,6 +111,9 @@ datalocal <- subset(data, zip %in% zipcodes)
 ## IN THIS STEP I SUBSET THE 'datasub' DATA EVEN FURTHER TO INCLUDE ONLY CASES WITHIN THE AREA OF INTEREST.
 datalocalsub <- subset(datasub, zip %in% zipcodes)
 
+## IN THIS STEP I SUBSET THE 'datasub' DATA TO INCLUDE ALL CASES EXCEPT THE ONES WITHIN THE AREA OF INTEREST.
+datarestsub <- subset(datasub, !(zip %in% zipcodes))
+
 ## THIS VALUE FOR THE POPULATION OF ILLINOIS WAS TAKEN FROM THE 2010 US CENSUS
 pop_illinois <- 12830632
 num_cases <- nrow(datasub)
@@ -143,6 +146,7 @@ colnames(ilcancer) <- c('zip', 'lat', 'long', 'freq')
 ## BY DOING A LEFT JOIN, WE MERGE THE TWO DATA FRAMES ON THE 'zip' COLUMN, KEEPING ONLY THE VALUES FROM THE
 ## 'ilcancer' DATA FRAME THAT ALSO APPEAR IN THE 'ilpop' DATA FRAME.
 cancer <- left_join(ilpop, ilcancer)
+cancer <- subset(cancer, complete.cases(cancer))
 cancer$per_year <- cancer$freq/15
 cancer$one_in_every_per_year <- cancer$population/cancer$per_year
 cancer$per_100000_per_year <- cancer$per_year*100000/cancer$population
@@ -151,8 +155,20 @@ cancer$zip_vs_state <- cancer$per_100000_per_year/per_100000_il_per_year
 ## SAVING A CSV OF THIS NEW DATA WITH THE STATISTICS FOR EACH ZIP CODE
 #write.csv(cancer, './Data/il_cancer_statistics.csv', row.names = FALSE)
 
+## THE LOCAL AREA
 cancer_local <- subset(cancer, zip %in% zipcodes)
 cancer_local <- arrange(cancer_local, desc(zip_vs_state))
+
+## THE REST OF THE STATE OUTSIDE OF THE STERIGENICS AREA
+cancer_rest <- subset(cancer, !(zip %in% zipcodes))
+cancer_rest <- arrange(cancer_rest, desc(zip_vs_state))
+
+## THE REST OF THE STATE WITH POPULATION BEING GREATER THAN 5000 PEOPLE
+cancer_rest_big <- subset(cancer_rest, population > 5000)
+
+## T-TESTS COMPARING LOCAL RATES TO REST OF STATE RATES
+test1 <- t.test(cancer_local$per_100000_per_year, cancer_rest$per_100000_per_year, alternative = 'greater')
+test2 <- t.test(cancer_local$per_100000_per_year, cancer_rest_big$per_100000_per_year, alternative = 'greater')
 
 ## CREATING A MAP OF THE LOCAL DATA
 

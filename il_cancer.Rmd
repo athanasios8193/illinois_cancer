@@ -124,7 +124,7 @@ This output is much more user-friendly than any of the others. I have included t
 
 ### State of Illinois Cancer Diagnoses
 
-Now that the data is in a clean, tidy format, it is time to explore the data. I'll start off by showing the trends for the entire state of Illinois since 1986. This first graph shows the number of cancer cases per 100,000 people per five year period in the state as reported by the IDPH since 1986. It is clear that the overall trend is up, despite there being some decline from '96-'00 to '01-'05, for example.
+Now that the data are in a clean, tidy format, it is time to explore the data. I'll start off by showing the trends for the entire state of Illinois since 1986. This first graph shows the number of cancer cases per 100,000 people per five year period in the state as reported by the IDPH since 1986. It is clear that the overall trend is up, despite there being some decline from '96-'00 to '01-'05, for example.
 
 **NOTE:** You can hover over the bars of each plot to see the underlying numbers.
 
@@ -227,8 +227,11 @@ colnames(ilcancer) <- c('zip', 'lat', 'long', 'freq')
 
 Next, I aggregated the number of diagnoses by zip code and combined those results with the U.S. Census Data by ZIP code. I did this for every ZIP code included in the IDPH data set and calculated diagnoses per year, 'One in Every X' per year, and 'X per 100000 People per Year,' as well as the ratio of the per 100000 people per year for each ZIP code compared to the state as a whole. The first few results are shown below.
 
+**NOTE:** There were two incomplete rows so I removed them from the set.
+
 ```{r merge-pop-and-cancer, message = FALSE}
 cancer <- left_join(ilpop, ilcancer)
+cancer <- subset(cancer, complete.cases(cancer))
 cancer$per_year <- cancer$freq/15
 cancer$one_in_every_X_per_year <- cancer$population/cancer$per_year
 cancer$per_100000_per_year <- cancer$per_year*100000/cancer$population
@@ -291,9 +294,9 @@ n <- n %>% addMarkers(lat = ~lat, lng = ~long,
 n <- n %>% addPolygons(data=data_map, weight=3, opacity = 1, fillOpacity = 0.5,
                        fillColor = ~colorQuantile('Greys', per_100000_per_year)(per_100000_per_year))
 n <- n %>% addCircles(lat = 41.747375, lng = -87.939954,
-                      label = 'Sterigenics Plant Radius',
+                      label = 'Sterigenics Plant Radius ',
                       color=rev(brewer.pal(8, 'Spectral')),
-                      radius = rev(seq(8))*804.672, opacity = 1, fillOpacity = 0.15)
+                      radius = (8:1)*804.672, opacity = 1, fillOpacity = 0.15)
 
 n
 ```
@@ -301,8 +304,6 @@ n
 ### Graphical Comparison of Local to State
 
 This graph is a visual representation of the per 100000 cancer rates in the Sterigenics area vs the state of Illinois as a whole (thick red line). It is clear from this that many of the local ZIP codes have a much higher rate than the state-wide baseline.
-
-
 
 ```{r visualize-cancer-local}
 k <- ggplot(cancer_local, aes(x=as.factor(zip), y=per_100000_per_year)) + 
@@ -312,7 +313,7 @@ k <- ggplot(cancer_local, aes(x=as.factor(zip), y=per_100000_per_year)) +
         scale_y_continuous(breaks = sort(c(seq(0, 750, length.out=6),
                                            round(per_100000_il_per_year,2)))) +
         ggtitle('Cancer Diagnoses per 100000 People per Year Compared to \n State of Illinois Overall')
-ggplotly(k)
+k
 ```
 
 
@@ -332,11 +333,83 @@ ggplotly(k)
 <!-- counts <- local_counts -->
 
 <!-- l <- ggplot(counts, aes(x=years, y=n)) + geom_bar(stat='identity') + -->
-<!--         facet_wrap(.~zip, scales='free', nrow=4) + theme(axis.text.x=element_text(size=6)) + -->
+<!--         facet_wrap(.~zip, scales='free', nrow=5) + theme(axis.text.x=element_text(size=6)) + -->
 <!--         ggtitle('Number of Cancer Cases in Sterigenics Area by Zip Code') + -->
 <!--         xlab('Years') + ylab('Number of Cases') -->
-<!-- ggplotly(l) -->
+<!-- l -->
 <!-- ``` -->
+
+# Deeper Statistical Analysis
+
+## Determining Normality
+
+Now that the data has been explored, trends have been noticed, and it has become apparent that the cancer rates in the area are higher than the state as a whole, I would like to do a deeper dive into the numbers and see if the difference is statistically significant. For the sake of this next analysis, I will be using the local data you've already seen and compare it to the rest of the ZIP codes in the state to see if our area has higher cancer rates than the rest of the state on average.
+
+In order to compare the area of interest with the rest of the state, I will be using a t-test, first developed by William Sealy Gosset under the pseudoym "Student." A t-test, in simplest terms, compares the average of two samples to determine if they are equal. In order for a t-test to be valid, the data has to be normally distributed. Below I show the plots for the distributions of the per 100,000 cancer rates in the area of interest and the rest of the state.
+
+```{r subsetting-rest}
+cancer_rest <- subset(cancer, !(zip %in% zipcodes))
+```
+
+```{r plotting-local, message='hide'}
+ggplot(cancer_local, aes(x=per_100000_per_year)) + geom_histogram(bins=10) + ggtitle('Local Cancer Rate Distribution') +
+        xlab('Diagnoses per 100,000 People per Year')
+```
+
+The local data sample size is just 12, so it would be hard to determine whether or not it is normal or not.
+
+```{r plotting-rest}
+ggplot(cancer_rest, aes(x=per_100000_per_year)) + geom_histogram(bins=45) +
+        ggtitle('Rest of State Cancer Rate Distribution') +
+        xlab('Diagnoses per 100,000 People per Year')
+```
+
+The rest of the state has an interesting distribution. The left portion of the plot appears to be normally distributed, but the distribution has a very long right tail starting at around 1200. I am guessing that this skew is caused by ZIP codes that have very small populations because their diagnoses per 100,000 rates would be higher than a ZIP code with a higher population. This is something I will come back to later on in the analysis.
+
+Another way to determine normality is by using QQ-plot or quantile-quantile plots. I will not go into the theory behind these plots too much, but the basic idea is that if the QQ-plot lies on a straight line, your data are approximately normally distributed. I will show QQ-plots for both data sets. Keep in mind that the local dataset has a low number of entries so it may not necessarily fit on the line.
+
+```{r qq-local}
+ggplot(cancer_local, aes(sample=per_100000_per_year)) + stat_qq_line(lwd=3, color='red') +
+        stat_qq() + ggtitle('QQ-Plot for Local Cancer Rates')
+```
+
+This local QQ-plot is a lot better than I expected it to be. Most of the points lie near or on the line with the exception of the two lowest values. I will accept this as normally distributed and valid for a t-test.
+
+```{r qq-rest}
+ggplot(cancer_rest, aes(sample=per_100000_per_year)) + stat_qq_line(lwd=3, color='red') +
+        stat_qq() + ggtitle('QQ-Plot for Rest of State Cancer Rates')
+```
+
+Most of these data points lie on the line. The ones that don't are the outliers that were observed in the histogram above. I believe, despite these outliers, that I can consider this data normally distributed and valid for a t-test.
+
+## T-testing
+
+Now that it has been determined that both the local and rest of state data are normally distributed, I will perform a t-test on the two samples. The $\alpha$ value I am going to use is the standard 0.05. The p-value returned from the t-test will be compared to this value to determine whether the test is statistically significant. In other words, if the p-value is greater than 0.05, then you can not conclude that the average cancer rate in the area of interest is greater than the rest of the state. If the p-value is less than 0.05, then you can conclude that the average rate in the area of interest is, in fact, greater than the rest of the state.
+
+```{r t-test-first}
+test1 <- t.test(cancer_local$per_100000_per_year, cancer_rest$per_100000_per_year, alternative = 'greater')
+test1
+```
+
+Based on this output, we can NOT say that the local area has a higher cancer rate than the rest of the state. The p-value returned by the test is 0.8123 which is much higher than the $\alpha$ value of 0.5. Now is an important time to look back at the distribution of cancer rates for the rest of the state. There was a noticeable right tail skewing the distribution which also messed with the QQ-plot. I hypothesized that the large skew was caused by ZIP codes with small populations. I will subset the rest of the state data to remove all ZIP codes with populations less than 5,000 people and then do another t-test. First, let's see what happens to the distribution when we subset.
+
+```{r plotting-rest-big}
+cancer_rest_big <- subset(cancer_rest, population > 5000)
+ggplot(cancer_rest_big, aes(x=per_100000_per_year)) + geom_histogram(bins=30) +
+        ggtitle('Rest of State (Population > 5000) Cancer Rate Distribution') +
+        xlab('Diagnoses per 100,000 People per Year')
+```
+
+This distribution looks much nicer than the one which included all of the smaller sized ZIP codes. Apart from making the data more normally distributed, I should note that in our area of interest, the smallest population size is 5,246 people. Now the rest of the state data are much more similar to the local data.
+
+Following is the results of a t-test with the local data and the newly subset data.
+
+```{r t-test-second}
+test2 <- t.test(cancer_local$per_100000_per_year, cancer_rest_big$per_100000_per_year, alternative = 'greater')
+test2
+```
+
+The p-value returned in this test is 0.01. This is lower than the standard 0.05 value, so based on this result, we can conclude that the ZIP code areas around Sterigenics in Willowbrook has higher cancer rates per year than the rest of the state while the population is greater than 5,000 people. This outcome was somewhat expected from the visualizations above, but now there is stronger evidence for a link between the Sterigenics plant and higher cancer incidence in the surrounding areas.
 
 # Conclusions
 
@@ -427,4 +500,30 @@ With all this considered, further research and testing by people more qualified 
 ```
 
 ```{r visualize-by-zip, echo=TRUE, eval=FALSE}
+```
+
+### Statistical Analysis
+
+```{r subsetting-rest, echo=TRUE, eval=FALSE}
+```
+
+```{r plotting-local, echo=TRUE, eval=FALSE}
+```
+
+```{r plotting-rest, echo=TRUE, eval=FALSE}
+```
+
+```{r qq-local, echo=TRUE, eval=FALSE}
+```
+
+```{r qq-rest, echo=TRUE, eval=FALSE}
+```
+
+```{r t-test-first, echo=TRUE, eval=FALSE}
+```
+
+```{r plotting-rest-big, echo=TRUE, eval=FALSE}
+```
+
+```{r t-test-second, echo=TRUE, eval=FALSE}
 ```
