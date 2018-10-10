@@ -306,7 +306,7 @@ n
 This graph is a visual representation of the per 100000 cancer rates in the Sterigenics area vs the state of Illinois as a whole (thick red line). It is clear from this that many of the local ZIP codes have a much higher rate than the state-wide baseline.
 
 ```{r visualize-cancer-local}
-k <- ggplot(cancer_local, aes(x=as.factor(zip), y=per_100000_per_year)) + 
+k <- ggplot(cancer_local, aes(x=reorder(as.factor(zip), -per_100000_per_year), y=per_100000_per_year)) + 
         geom_bar(stat='identity') +
         geom_hline(yintercept = per_100000_il_per_year, lwd=2, color='red') + 
         xlab('Zip Code') + ylab('Cancer Diagnoses per 100000 People per Year') +
