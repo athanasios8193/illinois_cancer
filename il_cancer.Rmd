@@ -402,6 +402,13 @@ ggplot(cancer_rest_big, aes(x=per_100000_per_year)) + geom_histogram(bins=30) +
 
 This distribution looks much nicer than the one which included all of the smaller sized ZIP codes. Apart from making the data more normally distributed, I should note that in our area of interest, the smallest population size is 5,246 people. Now the rest of the state data are much more similar to the local data.
 
+```{r qq-rest-big}
+ggplot(cancer_rest_big, aes(sample=per_100000_per_year)) + stat_qq_line(lwd=3, color='red') +
+        stat_qq() + ggtitle('QQ-Plot for Rest of State (Population > 5000) Cancer Rates')
+```
+
+This QQ-plot shows a much more normally distributed sample than the sample that included all other counties in Illinois.
+
 Following is the results of a t-test with the local data and the newly subset data.
 
 ```{r t-test-second}
@@ -523,6 +530,9 @@ With all this considered, further research and testing by people more qualified 
 ```
 
 ```{r plotting-rest-big, echo=TRUE, eval=FALSE}
+```
+
+```{r qq-rest-big, echo=TRUE, eval=FALSE}
 ```
 
 ```{r t-test-second, echo=TRUE, eval=FALSE}
