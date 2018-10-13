@@ -1,11 +1,12 @@
 
 # coding: utf-8
 
-# In[1]:
+# In[42]:
 
 
 import pandas as pd
 import numpy as np
+from scipy import stats
 
 
 # In[2]:
@@ -125,13 +126,13 @@ data['age'].value_counts()
 data['type'].value_counts()
 
 
-# In[18]:
+# In[14]:
 
 
 since2000 = ['2001-2005', '2006-2010', '2011-2015']
 
 
-# In[19]:
+# In[15]:
 
 
 datasub = data[(data['years'].isin(since2000))]
@@ -143,40 +144,47 @@ datasub = data[(data['years'].isin(since2000))]
 datasub['age'].value_counts()
 
 
-# In[21]:
+# In[16]:
 
 
-zipcodes = ['60527', '60439', '60561', '60521', '60558', '60514', '60559', '60525']
+zipcodes = ['60527', '60439', '60561', '60521', '60558', '60514',
+            '60559', '60525', '60480', '60515', '60516', '60517']
 
 
-# In[22]:
+# In[17]:
 
 
 datalocal = data[data['zip'].isin(zipcodes)]
 
 
-# In[23]:
+# In[18]:
 
 
 datalocal['zip'].value_counts()
 
 
-# In[24]:
+# In[19]:
 
 
 sns.countplot(x='years', data=datalocal.sort_values(by='years'))
 
 
-# In[25]:
+# In[20]:
 
 
 datalocal['age'].value_counts()
 
 
-# In[26]:
+# In[22]:
 
 
 datalocalsub = datasub[datasub['zip'].isin(zipcodes)]
+
+
+# In[24]:
+
+
+datarestsub = datasub[-datasub['zip'].isin(zipcodes)]
 
 
 # In[27]:
@@ -204,7 +212,7 @@ sns.countplot(x='years', hue='age', data=datalocalsub.sort_values(by=['years', '
 plt.legend(bbox_to_anchor=(1.05, .5), loc=2)
 
 
-# In[31]:
+# In[25]:
 
 
 pop_illinois = 12830632
@@ -214,13 +222,13 @@ one_in_every_il = pop_illinois/num_cases_per_year
 per_100000_il_per_year = num_cases_per_year * 100000 / pop_illinois
 
 
-# In[32]:
+# In[26]:
 
 
 one_in_every_il
 
 
-# In[33]:
+# In[27]:
 
 
 ilpop = pd.read_csv('./Data/il_2010_populations.csv', skiprows=1)
@@ -228,7 +236,7 @@ ilpop.drop(labels=['Id', 'Geography'], axis=1, inplace=True)
 ilpop.rename(index=str, columns={'Id2':'zip', 'Total':'population'}, inplace=True)
 
 
-# In[34]:
+# In[28]:
 
 
 cancer_counts = datasub['zip'].value_counts()
@@ -236,7 +244,7 @@ ilcancer = cancer_counts.rename_axis('zip').reset_index(name='freq')
 ilcancer['zip'] = pd.to_numeric(ilcancer['zip'])
 
 
-# In[43]:
+# In[29]:
 
 
 cancer = pd.merge(ilpop, ilcancer, 'left')
@@ -247,11 +255,25 @@ cancer['zip vs state'] = cancer['per 100000 per year']/per_100000_il_per_year
 cancer.head(6)
 
 
-# In[44]:
+# In[31]:
 
 
 cancer_local = cancer[cancer['zip'].isin(zipcodes)].sort_values('zip vs state', ascending=False)
 cancer_local
+
+
+# In[33]:
+
+
+cancer_rest = cancer[-cancer['zip'].isin(zipcodes)]
+cancer_rest.head()
+
+
+# In[37]:
+
+
+cancer_rest_big = cancer_rest[cancer_rest['population'] > 5000]
+cancer_rest_big.head()
 
 
 # In[42]:
@@ -292,4 +314,72 @@ counts
 
 g = sns.FacetGrid(counts, col='zip', col_wrap = 3, size=4, sharey = False)
 g = g.map(plt.bar, 'years', 'n')
+
+
+# In[96]:
+
+
+t1, p1 = stats.ttest_ind(a=cancer_local['per 100000 per year'], b=cancer_rest_big['per 100000 per year'], equal_var=False)
+
+
+# In[103]:
+
+
+t1
+
+
+# In[100]:
+
+
+p1/2
+
+
+# In[54]:
+
+
+local_cancer = cancer_local['freq'].sum()/15
+local_no_cancer = cancer_local['population'].sum()/15-local_cancer
+rest_cancer = cancer_rest_big['freq'].sum()/15
+rest_no_cancer = cancer_rest_big['population'].sum()/15-rest_cancer
+
+
+# In[106]:
+
+
+cont=[[local_cancer, local_no_cancer], [rest_cancer, rest_no_cancer]]
+cont = pd.DataFrame(cont)
+cont = cont.round(0)
+cont.columns = ['Cancer', 'No Cancer']
+cont.index = ['Sterigenics Area', 'Rest of State']
+cont
+
+
+# In[107]:
+
+
+chi2, p, dof, ex = stats.chi2_contingency(cont, correction = False)
+
+
+# In[108]:
+
+
+chi2
+
+
+# In[109]:
+
+
+p
+
+
+# In[110]:
+
+
+dof
+
+
+# In[111]:
+
+
+ex
 
