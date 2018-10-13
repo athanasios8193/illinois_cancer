@@ -170,6 +170,17 @@ cancer_rest_big <- subset(cancer_rest, population > 5000)
 test1 <- t.test(cancer_local$per_100000_per_year, cancer_rest$per_100000_per_year, alternative = 'greater')
 test2 <- t.test(cancer_local$per_100000_per_year, cancer_rest_big$per_100000_per_year, alternative = 'greater')
 
+## CHI-SQUARE TEST
+local_cancer <- sum(cancer_local$freq)/15
+local_no_cancer <- sum(cancer_local$population)/15-local_cancer
+rest_cancer <- sum(cancer_rest_big$freq)/15
+rest_no_cancer <- sum(cancer_rest_big$population)/15 - rest_cancer
+cont <- matrix(c(local_cancer, local_no_cancer, rest_cancer, rest_no_cancer), nrow=2)
+cont <- round(cont, 0)
+rownames(cont) <- c('Sterigenics Area', 'Rest of State')
+colnames(cont) <- c('Cancer', 'No Cancer')
+chisq.test(cont)
+
 ## CREATING A MAP OF THE LOCAL DATA
 
 ## DOWNLOADING SHAPE FILE FROM THE TIGRIS PACKAGE TO GET OUTLINES OF THE ZIP CODES
@@ -182,7 +193,7 @@ n <- n %>% addMarkers(lat = ~lat, lng = ~long,
                       popup=~paste('Per 100,000: ', as.character(round(per_100000_per_year, 2)), '<br>',
                                    'ZIP Code vs State: ', as.character(round(zip_vs_state, 2))),
                       label=~paste('Geographic Center of ', GEOID10, ' ZIP Code'))
-n <- n %>% addPolygons(data=data_map, weight=3, opacity = 1, fillOpacity = 0.5,
+n <- n %>% addPolygons(data=data_map, weight=2, opacity = 1, fillOpacity = 0.5,
                        fillColor = ~colorQuantile('Greys', per_100000_per_year)(per_100000_per_year))
 n <- n %>% addCircles(lat = 41.747375, lng = -87.939954,
                       label = 'Sterigenics Plant Radius',
@@ -216,3 +227,29 @@ illinois_counts <- illinois_counts[,c(1,3,2)]
 
 
 counts <- rbind(local_counts, illinois_counts)
+
+
+##############
+##############
+##############
+
+## TRYING OUT SIMULATING DATA TO SEE STATISTICAL SIGNIFICANCE BETWEEN RANDOM SAMPLES OF 12 ZIP CODES
+## FROM THE REST OF THE STATE WITH POPULATION > 5000
+
+set.seed(538)
+cancer_rest_big_less <- subset(cancer_rest_big, population < 32500)
+num_sims <- 32500:max(cancer_rest_big)
+
+
+p <- replicate(num_sims, t.test(cancer_local$per_100000_per_year, subset(cancer_rest_big_less, population < num_sims)$per_100000_per_year,
+                                alternative = 'greater')$p.value)
+
+ggplot(data.frame(p=p), aes(x=p)) + geom_histogram(bins=100) + geom_vline(xintercept=0.055, lwd=1, color='red')
+
+p <- rep(NA, times=length(num_sims))
+
+for (i in num_sims) {
+        p[(i-min(num_sims))] <- t.test(cancer_local$per_100000_per_year, subset(cancer_rest_big, population < i)$per_100000_per_year)$p.value
+}
+
+ggplot(data.frame(p=p), aes(x=p)) + geom_histogram(bins=100) + geom_vline(xintercept=0.055, lwd=1, color='red')

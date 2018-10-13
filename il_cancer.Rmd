@@ -418,6 +418,46 @@ test2
 
 The p-value returned in this test is 0.01. This is lower than the standard 0.05 value, so based on this result, we can conclude that the ZIP code areas around Sterigenics in Willowbrook has higher cancer rates per year than the rest of the state while the population is greater than 5,000 people. This outcome was somewhat expected from the visualizations above, but now there is stronger evidence for a link between the Sterigenics plant and higher cancer incidence in the surrounding areas.
 
+## Chi-Squared Test
+
+Another, and perhaps more appropriate, test to determine if the cancer rates in the affected areas are higher than the rest of the state is a $\chi^2$, or chi-squared test. In this case, I made a contingency table of the average number of cancer diagnoses per year and average number of people not diagnosed with cancer in both the areas around Sterigenics and the rest of the ZIP codes in the state with populations larger than 5,000 people. This table is shown below, with row and column sums added in.
+
+```{r contingency-table}
+local_cancer <- sum(cancer_local$freq)/15
+local_no_cancer <- sum(cancer_local$population)/15-local_cancer
+rest_cancer <- sum(cancer_rest_big$freq)/15
+rest_no_cancer <- sum(cancer_rest_big$population)/15 - rest_cancer
+
+contingency_table <- matrix(c(local_cancer, local_no_cancer, rest_cancer, rest_no_cancer), nrow=2)
+contingency_table <- round(contingency_table, 0)
+
+rownames(contingency_table) <- c('Sterigenics Area', 'Rest of State')
+colnames(contingency_table) <- c('Cancer', 'No Cancer')
+
+kable(addmargins(round(contingency_table, 0)), align='c')
+```
+
+The next step in a $\chi^2$ test is to find the expected value of each cell. To find this, you multiply the sum of the row by the sum of the column of the cell of interest and divide that product by the total number of observations in the table. You do this for each of the cells in the table (excluding the sums). Once you have calculated these, you can find the $\chi^2$ values for each cell by using the formula $\chi^2 = \frac{{(X-E(X))}^2}{E(X)}$ where X is the observed value and E(X) is the expected value. Sum up the $\chi^2$ values to get the total $\chi^2$ value. This sum, combined with the degrees of freedom, which is equal to the (number of rows - 1) x (number of columns - 1), or 1 in this case, are looked up in a $\chi^2$ distribution table to find the p-value. Following is the results of a $\chi^2$ test of the contingency table shown above.
+
+```{r chisq-test}
+chitest <- chisq.test(contingency_table, correct = FALSE)
+chitest
+```
+
+The overall $\chi^2$ value is `r chitest$statistic`, which is very high which leads to a p-value of `r chitest$p.value`, which is very low. The p-value being this low means that some value in the table has a value that has a statistically significant difference from the expected value. First, let us look at what the expected values were.
+
+```{r expected-values}
+kable(addmargins(round(chitest$expected, 0)), align = 'c')
+```
+
+We can see very obviously that the number of cancer diagnoses in the Sterigenics area is 256 larger than what was expected. The rest of the values have a difference of around 200 of their expected values, but since the number of cancer diagnoses in the Sterigenics is smaller than the others, it has a larger significance. Below is a table of the Pearson residuals. These can be interpreted like standard deviation, where values between -2 and 2 are within 95% of the mean and are considered statistically insignificant, and numbers outside of that range are thought to be statisically significant when $\alpha$ is equal to 0.05, which is the case here.
+
+```{r pearson-residuals}
+kable(chitest$residuals, align = 'c')
+```
+
+The 6.71 value for cancer diagnoses in the Sterigenics area is incredibly significant. The results of this $\chi^2$ test, along with the results of the t-test, suggest a link between proximity to the Sterigenics facilities in Willowbrook and cancer rates.
+
 # Conclusions
 
 The findings above prove that the area around the Sterigenics plants in Willowbrook have a higher cancer rate than the rest of the state of Illinois. Due to the high amounts of EtO emitted from the plants, it is likely that these higher rates could be linked to the presence of Sterigenics in the community. There are many limitations to the analysis I performed. I only looked at cancer data and didn't look at other possible ailments caused by EtO. If any data exist on other diseases or illnesses caused by EtO, I could do further analysis. Also, there are many people who work in the areas surrounding Sterigenics that do not necessarily live in the area, so if they did get cancer as a result of breathing in EtO, they would be reported in their own ZIP codes and would have been excluded. I could have tried to see if the rates of breast cancer were higher in this area compared to the rest of the state as well, as there is a link between breast cancer specifically and EtO.
@@ -536,4 +576,16 @@ With all this considered, further research and testing by people more qualified 
 ```
 
 ```{r t-test-second, echo=TRUE, eval=FALSE}
+```
+
+```{r contingency-table, echo=TRUE, eval=FALSE}
+```
+
+```{r chisq-test, echo=TRUE, eval=FALSE}
+```
+
+```{r expected-values, echo=TRUE, eval=FALSE}
+```
+
+```{r pearson-residuals, echo=TRUE, eval=FALSE}
 ```
