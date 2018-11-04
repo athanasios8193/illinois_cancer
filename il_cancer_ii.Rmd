@@ -1,0 +1,498 @@
+---
+title: "Illinois Cancer Data Analysis II"
+author: "Athanasios Stamatoukos"
+output:
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float: true
+    toc_collapse: false
+date: "November 4, 2018"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r loading-libraries, message = FALSE}
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(knitr)
+
+library(leaflet)
+library(RColorBrewer)
+
+library(tigris)
+library(rgeos)
+library(sp)
+```
+
+# Introduction
+
+This is a follow-up to the analysis I recently published about the Sterigenics plants in Willowbrook, IL, and the cancer diagnosis rates in the surrounding areas. This can be found at http://www.rpubs.com/astama/illinois_cancer. In that analysis, I found that there was a statistically significant link between proximity to that specific EtO polluting plant and cancer diagnosis rates in the 4 mile radius surrounding that plant. Since then, I have been introduced to the United States EPA's 2014 National Air Toxics Assessment (NATA) map and the EPA's Toxics Release Invnetory (TRI) database. From these resources, I found more Ethylene Oxide emitting facilities around the state of Illinois so I decided to see if there was a significant link between those facilities and the cancer diagnosis rates in the surrounding areas. I would have liked to extend the analysis to other states in the country that have EtO plants such as Louisiana, Texas, Colorado, and West Virginia, but they didn't have publically available cancer diagnosis data down to the ZIP Code level like Illinois did, so I was not able to do this.
+
+The NATA map (https://www.epa.gov/national-air-toxics-assessment/2014-nata-map) shows how many Metric Tons Per Year (TPY) of a wide variety of chemicals were polluted by facilites across the United States. In addition to this, they calculated additional cancer risk (per 1,000,000 people) that the people in each EPA land tract face due to the pollutants. If an area is highlighted in the dark blue color it means that at least an additional 100 people per million were at risk of developing cancer. In almost all such areas around the country, there is a facility that emits Ethylene Oxide.
+
+The EPA's TRI Explorer (https://iaspub.epa.gov/triexplorer/tri_release.facility) allows you to search by year, by state, by chemical to see how much of a particular chemical has been released by facilities around the country per year. The data from this website was in a rather messy format, so for the purpose of this analysis, I removed all rows and columns except for the "year" and "total emissions" column. This resource reported emissions in pounds, so I converted to metric tons by dividing by 2204.6. These plots can be seen in each section below.
+
+The facilities I was able to find that release EtO are listed below.
+
+```{r introducing-facilities}
+facility <- c('Sterigenics', 'Ele Corp', 'Azko Nobel Surface Chemistry', 'Lutheran General Hospital',
+              'Medline Industries/Steris Isomedix', 'Vantage Specialties', 'Lambent Technologies',
+              'Stepan Co', 'Tate & Lyle')
+town <- c('Willowbrook', 'McCook', 'McCook', 'Park Ridge',
+          'Northfield', 'Gurnee', 'Skokie',
+          'Elwood/Joliet', 'Decatur')
+facilitytable <- cbind(Facility_Name=facility, Location=town)
+kable(facilitytable, align='c')
+```
+
+Further explanation of these facilities will be given later in the report.
+
+Here is a link to my Github repository where all my code and data used can be found: https://github.com/athanasios8193/illinois_cancer
+
+
+```{r loading-data}
+cancer <- read.csv('./Data/il_cancer_statistics.csv', header = TRUE, stringsAsFactors = FALSE)
+il_rate <- 522.0538
+```
+
+```{r loading-pollution}
+sterigenics <- read.csv('./Data/facilities/sterigenics.csv', header=TRUE, stringsAsFactors = FALSE)
+ele <- read.csv('./Data/facilities/ele_corp.csv', header=TRUE, stringsAsFactors = FALSE)
+azko <- read.csv('./Data/facilities/azko.csv', header=TRUE, stringsAsFactors = FALSE)
+steris <- read.csv('./Data/facilities/steris_isomedix.csv', header=TRUE, stringsAsFactors = FALSE)
+vantage <- read.csv('./Data/facilities/vantage.csv', header=TRUE, stringsAsFactors = FALSE)
+lambent <- read.csv('./Data/facilities/lambent.csv', header=TRUE, stringsAsFactors = FALSE)
+stepan <- read.csv('./Data/facilities/stepan_co.csv', header=TRUE, stringsAsFactors = FALSE)
+tatelyle <- read.csv('./Data/facilities/tate_lyle.csv', header=TRUE, stringsAsFactors = FALSE)
+```
+
+```{r zipcodes}
+zipSterigenics <- c(60561, 60527)
+zipEle <- c(60525, 60501, 60534, 60546, 60402, 60513, 60638, 60526)
+# zipAzko <- c(60525, 60501, 60534, 60546, 60402, 60513, 60638)
+zipLuthGen <- c(60068, 60714, 60053, 60016,60025)
+zipMedline <- c(60085, 60064, 60048, 60031)
+zipVantage <- c(60031, 60087, 60058)
+zipStepan <- c(60410, 60421)
+zipTateLyle <- c(62526, 62523, 62521)
+zipLambent <- c(60712, 60659, 60645, 60646, 60626, 60202, 60076, 60077, 60203)
+zipEtO <- unique(c(zipSterigenics, zipEle, zipLuthGen, zipMedline, zipVantage, zipStepan, zipTateLyle, zipLambent))
+```
+
+# Cancer Rate Tables and Pollution Data
+
+Following are plots showing EtO pollution from facilities around Illinois and the ZIP codes largely contained within 2.5 miles of their respective EtO emitting facilities. Note that the baseline cancer diagnosis rate for the entire state was previously calculated to be 522 per 100,000 people per year.
+
+There is a map at the end of this section that contains the cancer diagnosis rates for every ZIP code in Illinois. The 9 facilities I examine are all shown on the map with 2.5 mile circles surrounding them.
+
+**NOTE:** All emissions plots are interactive. You can hover over each bar to see the exact number of tons per year released by the facility.
+
+## Sterigenics
+
+Sterigenics was largely reported on in my previous report. In this analysis, I shrank the radius from 4 miles to 2.5 miles. Now, I am only considering Willowbrook and Darien.
+
+The TRI report had a few years missing between 1989 and 1994. It's interesting to see the very high number in 1988 and then the sharp decline in EtO emissions from 1998 to 1999.
+
+```{r plot-sterigenics}
+g <- ggplot(sterigenics, aes(x=year, y=total_emissions_tons)) + geom_bar(stat='identity')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Sterigenics')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+```{r subsetting-sterigenics}
+cancer_steri <- subset(cancer, zip %in% zipSterigenics)
+kable(arrange(cancer_steri[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_steri <- sum(cancer_steri$per_year)*100000/sum(cancer_steri$population)
+comp_steri <- per_steri/il_rate
+```
+
+The overall rate per 100,000 people in the Sterigenics area is `r round(per_steri, 2)` and compared to the state baseline it is `r round(comp_steri, 3)`, which is 27.7% higher.
+
+## Ele Corp and Azko Nobel Surface Chemistry
+
+The Ele Corp and Azko Nobel facilities are both located in McCook, Illinois. These two facilities are located very near each other, so I decided to group them together for the sake of this analysis. Appearing below is the pollution graph. The Azko Nobel data ends in 2007, which is the same year that Ele first appears on the plot. Like Sterigenics, there is a very sharp decline in EtO emissions from 1998 to 1999.
+
+```{r plot-eleazko}
+g <- ggplot() + geom_bar(data=ele, aes(year, total_emissions_tons), stat='identity', fill='red')
+g <- g + geom_bar(data=azko, aes(year, total_emissions_tons), stat='identity', fill='blue')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Ele Corp (Red) and
+                                                                                 Azko Nobel Surface Chemistry (Blue)')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+It is important to note that 60525, La Grange, is sandwiched between the Sterigenics facility to the southwest and the Ele and Azko Noble facilities to the east.
+
+```{r subsetting-eleazko}
+cancer_ele <- subset(cancer, zip %in% zipEle)
+kable(arrange(cancer_ele[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_ele <- sum(cancer_ele$per_year)*100000/sum(cancer_ele$population)
+comp_ele <- per_ele/il_rate
+```
+
+The overall rate per 100,000 people in the Ele Corp/Azko Nobel area is `r round(per_ele, 2)` and compared to the state baseline it is `r round(comp_ele, 3)`, which is 10.1% higher.
+
+## Lutheran General
+
+Lutheran General is a hospital in Park Ridge, Illinois. The US EPA did not have year by year data for Lutheran General. I found this facility from the 2014 NATA Map. According to the map, Lutheran General released 0.10 tons of Ethylene Oxide into the air that year. Since no other data are available for this facility, I don't know how long they have been releasing EtO or how much they have been releasing.
+
+The areas surrounding this hospital have some of the highest cancer diagnosis rates of all of the ZIP codes being analyzed.
+
+```{r subsetting-lutheran}
+cancer_luthgen <- subset(cancer, zip %in% zipLuthGen)
+kable(arrange(cancer_luthgen[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_lutheran <- sum(cancer_luthgen$per_year)*100000/sum(cancer_luthgen$population)
+comp_lutheran <- per_lutheran/il_rate
+```
+
+The overall rate per 100,000 people in the Lutheran area is `r round(per_lutheran, 2)` and compared to the state baseline it is `r round(comp_lutheran, 3)`, which is 31.9% higher.
+
+## Medline Industries/Steris Isomedix
+
+The EPA's TRI report lists this facility as Steris Isomedix and the data ends at 2005. In the 2014 NATA Map, the facility is listed as Medline Industries. According to the map, the facility released 1.529 tons of EtO that year. I saw nothing on the TRI report about Medline Industries even though it appears on the NATA Map.
+
+```{r plot-steris}
+g <- ggplot(steris, aes(x=year, y=total_emissions_tons)) + geom_bar(stat='identity')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Steris Isomedix')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+These results are pretty interesting. Only one ZIP code in this area has a cancer diagnosis rate higher than the state baseline.
+
+```{r subsetting-steris}
+cancer_medline <- subset(cancer, zip %in% zipMedline)
+kable(arrange(cancer_medline[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_medline <- sum(cancer_medline$per_year)*100000/sum(cancer_medline$population)
+comp_medline <- per_medline/il_rate
+```
+
+The overall rate per 100,000 people in the Medline Industries/Steris Isomedix area is `r round(per_medline, 2)` and compared to the state baseline it is `r round(comp_medline, 3)`, which is 25.5% lower.
+
+## Vantage Specialties
+
+The Vantage Specialties facility is located in Gurnee, not too far from the Medline Industries facility. Similar to Sterigenics and Azko Nobel, there is a sharp decline from 1998 to 1999. The EtO emissions then spike around 2010. 
+
+```{r plot-vantage}
+g <- ggplot(vantage, aes(x=year, y=total_emissions_tons)) + geom_bar(stat='identity')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Vantage Specialties')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+Similarly to the Medline Industries facility, there is a surpringly low cancer diagnosis rate in this area. 
+
+```{r subsetting-vantage}
+cancer_vantage <- subset(cancer, zip %in% zipVantage)
+kable(arrange(cancer_vantage[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_vantage <- sum(cancer_vantage$per_year)*100000/sum(cancer_vantage$population)
+comp_vantage <- per_vantage/il_rate
+```
+
+The overall rate per 100,000 people in the Vantage Specialties area is `r round(per_vantage, 2)` and compared to the state baseline it is `r round(comp_vantage, 3)`, which is 16.8% lower.
+
+## Lambent Technologies
+
+Lambent Technologies was located in Skokie. Data stopped being collected in 2005. The Lambent Technologies website says that they changed their name to Vantage Specialties.
+
+```{r plot-lambent}
+g <- ggplot(lambent, aes(x=year, y=total_emissions_tons)) + geom_bar(stat='identity')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Lambent Technologies')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+This area contains some ZIP codes with very high cancer diagnosis rates. 
+
+```{r subsetting-lambent}
+cancer_lambent <- subset(cancer, zip %in% zipLambent)
+kable(arrange(cancer_lambent[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_lambent <- sum(cancer_lambent$per_year)*100000/sum(cancer_lambent$population)
+comp_lambent <- per_lambent/il_rate
+```
+
+The overall rate per 100,000 people in the Lambent Technologies area is `r round(per_lambent, 2)` and compared to the state baseline it is `r round(comp_lambent, 3)`, which is 2.7% higher.
+
+## Stepan Co
+
+Stepan Co is a chemical company in Elwood/Joliet, Illinois. They had a huge spike in EtO emissions in 1997 then it dropped back down the next year.
+
+```{r plot-stepan}
+g <- ggplot(stepan, aes(x=year, y=total_emissions_tons)) + geom_bar(stat='identity')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Stepan Co')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+The ZIP code the facility is in, 60421, has a higher cancer diagnosis rate than the adjacent ZIP code.
+
+```{r subsetting-stepan}
+cancer_stepan <- subset(cancer, zip %in% zipStepan)
+kable(arrange(cancer_stepan[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_stepan <- sum(cancer_stepan$per_year)*100000/sum(cancer_stepan$population)
+comp_stepan <- per_stepan/il_rate
+```
+
+The overall rate per 100,000 people in the Stepan Co area is `r round(per_stepan, 2)` and compared to the state baseline it is `r round(comp_stepan, 3)`, which is 15.9% lower.
+
+## Tate & Lyle
+
+Tate & Lyle is a food manufacturing business in Decatur. The EtO emissions were very high before 1992 before they dropped down to low amounts from 1993-1998. The emissions then rise in 1999 where they remained fairly constant from then.
+
+```{r plot-tatelyle}
+g <- ggplot(tatelyle, aes(x=year, y=total_emissions_tons)) + geom_bar(stat='identity')
+g <- g + xlab('Year') + ylab('EtO Emissions per Year (Metric Tons)') + ggtitle('EtO Emissions from Tate & Lyle')
+g <- g + xlim(1987, 2018)
+ggplotly(g)
+```
+
+The two more largely populated ZIP codes in the area had cancer diagnosis rates around 50% higher than the state baseline while the lowest ZIP code was 33% less.
+
+```{r subsetting-tatelyle}
+cancer_tatelyle <- subset(cancer, zip %in% zipTateLyle)
+kable(arrange(cancer_tatelyle[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_tatelyle <- sum(cancer_tatelyle$per_year)*100000/sum(cancer_tatelyle$population)
+comp_tatelyle <- per_tatelyle/il_rate
+```
+
+The overall rate per 100,000 people in the Tate & Lyle area is `r round(per_tatelyle, 2)` and compared to the state baseline it is `r round(comp_tatelyle, 3)`, which is 47.9% higher.
+
+## Map
+
+Here is a map of every ZIP code in the state of Illinois with the darkness of the fill corresponding to a higher cancer diagnosis rate. The filled in circles are centered around EtO emitting facilities. Hovering over these circles will tell you which facility it is.
+
+```{r loading-shapes, cache=TRUE, message=FALSE, results='hide'}
+datashp <- zctas(cb = TRUE, starts_with = cancer$zip)
+```
+
+```{r leaflet-map}
+data_map <- merge(datashp, cancer, by.x = 'GEOID10', by.y ='zip')
+
+n <- leaflet(data_map) %>% addTiles()
+n <- n %>% addMarkers(lat = ~lat, lng = ~long, 
+                      popup=~paste('Per 100,000: ', as.character(round(per_100000_per_year, 2)), '<br>',
+                                   'ZIP Code vs State: ', as.character(round(zip_vs_state, 2))),
+                      label=~paste('Geographic Center of ', GEOID10, ' ZIP Code'),
+                      clusterOptions = markerClusterOptions())
+n <- n %>% addPolygons(data=data_map, weight=2, opacity = 1, fillOpacity = 0.5,
+                       fillColor = ~colorQuantile('Greys', per_100000_per_year)(per_100000_per_year))
+n <- n %>% addCircles(lat = 41.747375, lng = -87.939954,
+                      label = 'Sterigenics Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 41.805248, lng = -87.817419,
+                      label = 'Ele Corp Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 42.038210, lng = -87.847630,
+                      label = 'Lutheran General Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 42.336930, lng = -87.889110,
+                      label = 'Medline Industries Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 41.442163, lng = -88.159382,
+                      label = 'Stepan Co Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 39.849503, lng = -88.918665,
+                      label = 'Tate & Lyle Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 42.383157, lng = -87.899563,
+                      label = 'Vantage Specialties Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 42.01284, lng = -87.717112,
+                      label = 'Lambent Technologies Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+n <- n %>% addCircles(lat = 41.805017, lng = -87.827975,
+                      label = 'Azko Nobel Surface Chemistry Plant Radius',
+                      color=rev(brewer.pal(5, 'Spectral')),
+                      radius = rev(seq(5))*804.672, opacity = 1, fillOpacity = 0.15)
+
+n
+```
+
+# Deeper Statistical Analysis - $\chi^2$ Test
+
+In my original analysis which focused only on Sterigenics, I used both t-testing and $\chi^2$ testing. I mentioned there that it was more appropriate to use the $\chi^2$ test over the t-test. In the t-tests, the cancer rates per 100,000 people were averaged and comapred to the average rate of the rest of the state. By doing this, you misrepresent the distribution because of how the cancer rate per 100,000 people is calculated. The $\chi^2$ test is based off a contingency table. This table contains the number of people per year who were diagnosed with cancer or not diagnosed with cancer in the EtO and out of the EtO affected areas. The expected value of each cell is calculated and compared to the actual recorded value. If any value has an unusually high $\chi^2$ value, it is statistically significant.
+
+Following is a table of all the EtO affected ZIP codes that I showed above.
+
+```{r subsetting-EtO}
+cancer_EtO <- subset(cancer, zip %in% zipEtO)
+kable(arrange(cancer_EtO[,-c(3,4)], desc(zip_vs_state)), align='c')
+per_EtO <- sum(cancer_EtO$per_year)*100000/sum(cancer_EtO$population)
+comp_EtO <- per_EtO/il_rate
+```
+
+The overall rate per 100,000 people in the EtO areas is `r round(per_EtO, 2)` and compared to the state baseline it is `r round(comp_EtO, 3)`, which is 9.2% higher.
+
+Since the lowest population in the EtO affected areas is 1,237, I will remove all ZIP Codes with populations less than 1,000. In the Sterigenics only analysis, I removed all ZIP Codes with fewer than 5,000 people to make the samples more representative for comparison's sake.
+
+## $\chi^2$ Test
+
+The point of this analysis is to determine if there is a link between cancer diagnosis rates and proximity to EtO facilities. Rather than perform a test for each facility individually, I will aggregate all the ZIP codes and do a test of EtO adjacent areas vs non-EtO adjacent areas. 
+
+In the table below, the first row contains the number of cancer diagnoses in the EtO adjacent areas from 2001-2015 in the first column and the number of people in the areas who were not diagnosed with cancer in the second column. The second row shows the same thing for the rest of the ZIP codes in Illinois.
+
+```{r contingency-table}
+cancer_rest <- subset(cancer, !(zip %in% zipEtO))
+cancer_rest_big <- subset(cancer_rest, population > 1000)
+
+EtO_cancer <- sum(cancer_EtO$freq)
+EtO_no_cancer <- sum(cancer_EtO$population) - EtO_cancer
+rest_cancer <- sum(cancer_rest_big$freq)
+rest_no_cancer <- sum(cancer_rest_big$population) - rest_cancer
+
+contingency_table <- matrix(c(EtO_cancer, EtO_no_cancer, rest_cancer, rest_no_cancer), nrow=2)
+contingency_table <- round(contingency_table, 0)
+
+rownames(contingency_table) <- c('EtO Affected Areas', 'Rest of State')
+colnames(contingency_table) <- c('Cancer', 'No Cancer')
+
+kable(addmargins(round(contingency_table, 0)), align='c')
+```
+
+A $\chi^2$ test was performed on this contingency table and the results are below. The p-value is very small, which means that this result is statistically significant. The formula for calculating the $\chi^2$ value is shown in my Sterigenics-only analysis.
+
+```{r chisq-test}
+chitest <- chisq.test(contingency_table, correct=FALSE)
+chitest
+```
+
+The table below shows how many cancer diagnoses would be expected for each of the four groups based on the proportion of people in each group compared to the population overall. You can see that each number is off by around 7-8,000. This is most significant in the EtO Affected Cancer diagnoses because the number is at least an order of magnitude smaller than the rest in the table.
+
+```{r chisq-expected}
+kable(addmargins(round(chitest$expected, 0)), align = 'c')
+```
+
+This following table confirms that the number of cancer diagnoses in the EtO affected areas is significantly larger than it should be. Additionally, since the number of cancer diagnoses is so high in the EtO areas, the number of cancer diagnoses for the rest of the state is lower than it should be and the number of people who hadn't been diagnosed with cancer is much lower than it should be.
+
+```{r chisq-residuals}
+kable(chitest$residuals, align = 'c')
+```
+
+
+# Conclusions
+
+Just like the previous analysis I performed, I found a statistically significant link between proximity to EtO plants and high cancer diagnosis rates. Very interestingly, there were areas around some facilities that didn't have cancer rates higher than the state baseline, but when looking at all areas around EtO facilities, there is a cancer diagnosis rate of 9.2% higher than the state baseline. Based on this, there is a lot of evidence to suggest that living near an EtO polluting facility made you more likely to be diagnosed with cancer than if you lived anywhere else in the state.
+
+# Appendix
+
+## References
+
+**US EPA Toxics Release Inventory**
+
+-United States Environmental Protection Agency. (2018). TRI Explorer (2017 Dataset (released October 2018)) [Internet database]. Retrieved from https://www.epa.gov/triexplorer, (November 02, 2018).
+
+**US EPA 2014 National Air Toxics Assessment**
+
+-United States Environmental Protection Agency. Retrieved from https://www.epa.gov/national-air-toxics-assessment/2014-national-air-toxics-assessment, (November 02, 2018).
+
+**Illinois Cancer Data**
+
+-Illinois Department of Public Health, Illinois State Cancer Registry, public dataset, 1986-2015, data as of November 2017
+
+**Illinois Population Data**
+
+-U.S. Census Bureau; Census 2010, Summary File 1, 5-Digit ZIP Code Tabulation within Illinois; generated by Athanasios Stamatoukos; using American FactFinder; <http://factfinder.census.gov>; (5 October 2018)
+
+**Motivation**
+
+I got the idea to do this analysis after seeing posts by "Stop Sterigenics" group members Richard Morton and Katherine M Howard
+
+## Code
+
+### Loading and Introducing Data
+```{r loading-libraries, echo=TRUE, eval=FALSE}
+```
+
+```{r introducing-facilities, echo=TRUE, eval=FALSE}
+```
+
+```{r loading-data, echo=TRUE, eval=FALSE}
+```
+
+```{r loading-pollution, echo=TRUE, eval=FALSE}
+```
+
+```{r zipcodes, echo=TRUE, eval=FALSE}
+```
+
+### Plotting and Subsetting Data
+```{r plot-sterigenics, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-sterigenics, echo=TRUE, eval=FALSE}
+```
+
+```{r plot-eleazko, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-eleazko, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-lutheran, echo=TRUE, eval=FALSE}
+```
+
+```{r plot-steris, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-steris, echo=TRUE, eval=FALSE}
+```
+
+```{r plot-vantage, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-vantage, echo=TRUE, eval=FALSE}
+```
+
+```{r plot-lambent, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-lambent, echo=TRUE, eval=FALSE}
+```
+
+```{r plot-stepan, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-stepan, echo=TRUE, eval=FALSE}
+```
+
+```{r plot-tatelyle, echo=TRUE, eval=FALSE}
+```
+
+```{r subsetting-tatelyle, echo=TRUE, eval=FALSE}
+```
+
+### Map
+```{r loading-shapes, echo=TRUE, eval=FALSE}
+```
+
+```{r leaflet-map, echo=TRUE, eval=FALSE}
+```
+
+### Chi-Square Test
+```{r subsetting-EtO, echo=TRUE, eval=FALSE}
+```
+
+```{r contingency-table, echo=TRUE, eval=FALSE}
+```
+
+```{r chisq-test, echo=TRUE, eval=FALSE}
+```
+
+```{r chisq-expected, echo=TRUE, eval=FALSE}
+```
+
+```{r chisq-residuals, echo=TRUE, eval=FALSE}
+```
